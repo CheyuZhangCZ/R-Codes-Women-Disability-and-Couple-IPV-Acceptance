@@ -1,0 +1,882 @@
+---
+title: "Pooled"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(haven)
+library(dplyr)
+library(survey)
+library(tidyverse)
+library(openxlsx)
+library(ggplot2)
+library(scales)
+```
+
+# Read in data
+
+## load data
+```{r}
+# data has to be in the same folder as described here.
+# use getwd() to see current folder
+datanames <- list.files(path="./adata",pattern = "\\.Rdata$")
+shortnames <- datanames  #store short version of names
+# loop for loading data
+for (i in seq_along(datanames))   # seq_along(): I think it equals 1:length(datanames) 
+{
+  load(file = paste0("./adata/",datanames[i]))
+  shortnames[i]=substr(shortnames[i],1,2)  #put names in a list for later combining
+}
+```
+
+# manage variables
+```{r}
+# # Use TL as the standard dataset
+TLm <- TLma
+TLw <- TLwa
+# # PSU should be different in each country, so v021 is changed by country.
+PKm <- PKma %>% mutate(
+  mv005 = ifelse(mv005==0,smv005,mv005),smv005 = NULL,
+  wv005 = ifelse(wv005==0,wsv005,wv005),wsv005 = NULL,
+  mv021 = mv021+1000)
+PKw <- PKwa %>% mutate(
+  wv005 = ifelse(wv005==0,wsv005,wv005),wsv005 = NULL,
+  wv021 = wv021+1000)
+
+HTm <- HTma %>% mutate(mv021=mv021+2000)
+HTw <- HTwa %>% mutate(wv021=wv021+2000)
+
+MLm <- MLma %>% mutate(mv021=mv021+3000)
+MLw <- MLwa %>% mutate(wv021=wv021+3000)
+
+UGm <- UGma %>% mutate(
+  hdis1=sh23, hdis2=ifelse(is.na(sh24),sh25,sh24),
+  hdis3=sh26, hdis4=ifelse(is.na(sh27),sh28,sh27),
+  hdis5=sh29, hdis6=sh30, hdis7=sh31, hdis8=sh32,
+  whdis1=wsh23, whdis2=ifelse(is.na(wsh24),wsh25,wsh24),
+  whdis3=wsh26, whdis4=ifelse(is.na(wsh27),wsh28,wsh27),
+  whdis5=wsh29, whdis6=wsh30, whdis7=wsh31, whdis8=wsh32,
+  sh23=NULL, sh24=NULL, sh25=NULL, sh26=NULL, 
+  sh27=NULL, sh28=NULL, sh29=NULL, sh30=NULL,
+  sh31=NULL, sh32=NULL, 
+  wsh23=NULL, wsh24=NULL, wsh25=NULL, wsh26=NULL, 
+  wsh27=NULL, wsh28=NULL, wsh29=NULL, wsh30=NULL,
+  wsh31=NULL, wsh32=NULL, 
+  mv021=mv021+4000) %>% 
+  relocate(hdis1:hdis8,.after=hvidx) %>% 
+  relocate(whdis1:whdis8,.after=whvidx)
+UGw <- UGwa %>% mutate(
+  whdis1=wsh23, whdis2=ifelse(is.na(wsh24),wsh25,wsh24),
+  whdis3=wsh26, whdis4=ifelse(is.na(wsh27),wsh28,wsh27),
+  whdis5=wsh29, whdis6=wsh30, whdis7=wsh31, whdis8=wsh32,
+  wsh23=NULL, wsh24=NULL, wsh25=NULL, wsh26=NULL, 
+  wsh27=NULL, wsh28=NULL, wsh29=NULL, wsh30=NULL,
+  wsh31=NULL, wsh32=NULL, 
+  wv021=wv021+4000) %>% 
+  relocate(whdis1:whdis8,.after=whvidx)
+
+KHm <- KHma %>% mutate(
+  hdis1=9,hdis2=sh21,hdis3=9,hdis4=sh22,hdis5=sh26,hdis6=sh24,hdis7=sh23,hdis8=sh25,
+  whdis1=9,whdis2=wsh21,whdis3=9,whdis4=wsh22,whdis5=wsh26,whdis6=wsh24,whdis7=wsh23,whdis8=wsh25,
+  sh21=NULL,sh22=NULL,sh26=NULL,sh24=NULL,sh23=NULL,sh25=NULL,
+  wsh21=NULL,wsh22=NULL,wsh26=NULL,wsh24=NULL,wsh23=NULL,wsh25=NULL,
+  mv171a=NA,mv171b=sm112a,sm112a=NULL,
+  wv171a=NA,wv171b=ws112a,ws112a=NULL,
+  mv021=mv021+5000)%>% 
+  relocate(hdis1:hdis8,.after=hvidx)%>% 
+  relocate(whdis1:whdis8,.after=whvidx)%>%
+  relocate(mv171a:mv171b,.after=mv159) %>%
+  relocate(wv171a:wv171b,.after=wv159)
+KHw <- KHwa %>% mutate(
+  whdis1=9,whdis2=wsh21,whdis3=9,whdis4=wsh22,whdis5=wsh26,whdis6=wsh24,whdis7=wsh23,whdis8=wsh25,
+  wsh21=NULL,wsh22=NULL,wsh26=NULL,wsh24=NULL,wsh23=NULL,wsh25=NULL,
+  wv171a=NA,wv171b=ws112a,ws112a=NULL,
+  wv021=wv021+5000)%>% 
+  relocate(whdis1:whdis8,.after=whvidx)%>%
+  relocate(wv171a:wv171b,.after=wv159)
+
+ZAm <- ZAma %>% mutate(mv021=mv021+6000)
+ZAw <- ZAwa %>% mutate(wv021=wv021+6000)
+
+RWm <- RWma %>% mutate(mv021=mv021+7000)
+RWw <- RWwa %>% mutate(wv021=wv021+7000)
+
+SNm <- SNma %>% mutate(
+  hdis1=sh20ga, hdis2=ifelse(is.na(sh20gb),sh20gc,sh20gb),
+  hdis3=sh20gd, hdis4=ifelse(is.na(sh20ge),sh20gf,sh20ge),
+  hdis5=sh20gg, hdis6=sh20gh, hdis7=sh20gi, hdis8=sh20gj,
+  whdis1=wsh20ga, whdis2=ifelse(is.na(wsh20gb),wsh20gc,wsh20gb),
+  whdis3=wsh20gd, whdis4=ifelse(is.na(wsh20ge),wsh20gf,wsh20ge),
+  whdis5=wsh20gg, whdis6=wsh20gh, whdis7=wsh20gi, whdis8=wsh20gj,
+  sh20ga=NULL, sh20gb=NULL, sh20gc=NULL, sh20gd=NULL, 
+  sh20ge=NULL, sh20gf=NULL, sh20gg=NULL, sh20gh=NULL,
+  sh20gi=NULL, sh20gj=NULL, 
+  wsh20ga=NULL, wsh20gb=NULL, wsh20gc=NULL, wsh20gd=NULL, 
+  wsh20ge=NULL, wsh20gf=NULL, wsh20gg=NULL, wsh20gh=NULL,
+  wsh20gi=NULL, wsh20gj=NULL, 
+  mv021=mv021+8000) %>% 
+  relocate(hdis1:hdis8,.after=hvidx) %>% 
+  relocate(whdis1:whdis8,.after=whvidx)
+SNw <- SNwa %>% mutate(
+  whdis1=wsh20ga, whdis2=ifelse(is.na(wsh20gb),wsh20gc,wsh20gb),
+  whdis3=wsh20gd, whdis4=ifelse(is.na(wsh20ge),wsh20gf,wsh20ge),
+  whdis5=wsh20gg, whdis6=wsh20gh, whdis7=wsh20gi, whdis8=wsh20gj,
+  wsh20ga=NULL, wsh20gb=NULL, wsh20gc=NULL, wsh20gd=NULL, 
+  wsh20ge=NULL, wsh20gf=NULL, wsh20gg=NULL, wsh20gh=NULL,
+  wsh20gi=NULL, wsh20gj=NULL, 
+  wv021=wv021+8000) %>% 
+  relocate(whdis1:whdis8,.after=whvidx)
+```
+
+# combine datasets
+```{r}
+# make a useable shortnames reference
+mnames <- paste0(shortnames,"m")
+wnames <- paste0(shortnames,"w")
+# put all data in a list for easier reference (don't understand but it works lol)
+# note: just use list() would not work. it will turn everything into lists. 
+mdatas <- sapply(paste(mnames, sep=''), get, environment(), simplify = FALSE)
+wdatas <- sapply(paste(wnames, sep=''), get, environment(), simplify = FALSE)
+
+# .id : column name, containing each small dataset names for corresponding participant
+mcdata <- bind_rows(mdatas,.id="country")
+wcdata <- bind_rows(wdatas,.id="country")
+```
+
+# reweight countries to same influence
+```{r}
+# generate new weight
+# new weight adds to 5000, with 1000 per country. rescalling is optional.
+mncountry <- mcdata %>% group_by(country) %>% summarise(sumwt=sum(mv005))
+mdata <- full_join(mcdata,mncountry,by="country") %>% mutate(wt=mv005/sumwt*1000)
+wncountry <- wcdata %>% group_by(country) %>% summarise(sumwt=sum(wv005))
+wdata <- full_join(wcdata,wncountry,by="country") %>% mutate(wt=wv005/sumwt*1000)
+```
+
+# order countries
+```{r}
+mdata <- mutate(mdata,
+                country = case_when(country=="KHm" ~ "Cambodia",
+                                    country=="HTm" ~ "Haiti",
+                                    country=="MLm" ~ "Mali",
+                                    country=="PKm" ~ "Pakistan",
+                                    country=="RWm" ~ "Rwanda",
+                                    country=="SNm" ~ "Senegal",
+                                    country=="ZAm" ~ "South Africa",
+                                    country=="TLm" ~ "Timor Leste",
+                                    country=="UGm" ~ "Uganda"),
+                country = factor(country,levels = c("Cambodia","Haiti","Mali","Pakistan","Rwanda","Senegal",
+                                 "South Africa","Timor Leste","Uganda")))
+wdata <- mutate(wdata,
+                country = case_when(country=="KHw" ~ "Cambodia",
+                                    country=="HTw" ~ "Haiti",
+                                    country=="MLw" ~ "Mali",
+                                    country=="PKw" ~ "Pakistan",
+                                    country=="RWw" ~ "Rwanda",
+                                    country=="SNw" ~ "Senegal",
+                                    country=="ZAw" ~ "South Africa",
+                                    country=="TLw" ~ "Timor Leste",
+                                    country=="UGw" ~ "Uganda"),
+                country = factor(country,levels = c("Cambodia","Haiti","Mali","Pakistan","Rwanda","Senegal",
+                                 "South Africa","Timor Leste","Uganda"))) %>% filter(whv105>=15)
+```
+
+
+
+```{r}
+#save for reproducible result
+save(mdata,wdata,file = "cdata.Rdata")
+```
+
+
+
+# Start here
+```{r}
+library(haven)
+library(dplyr)
+library(labelled)
+library(tidyverse)
+library(mice)
+library(survey)
+library(arsenal)
+```
+
+# load data and manipulate
+```{r}
+# load data
+load("cdata.Rdata")
+
+# manipulate data
+
+# set up design and utilities
+mdsgn <- svydesign(id=~mv021, strata=~mv023, weights=~wt, nest = TRUE, data = mdata) 
+wdsgn <- svydesign(id=~wv021, strata=~wv023, weights=~wt, nest = TRUE, data = wdata) 
+
+wout <- c("wdis_any2","wjust_any")
+mout <- c("wdis_any2","mdis_any2","mjust_any")
+wcov <- c("wage","wedu","wlivchild","wwork","wwealth","wurbrur","wmarital",
+          "wfreqmedia")
+mcov <- c("mage","medu","mlivchild","mwork","mwealth","murbrur","mmarital",
+          "mfreqmedia","mpolygamy")
+
+printer <- function(modelglm)
+{ 
+  printt <- as.data.frame(round(exp(confint(modelglm)),2))
+  printt$coeff <- c(round(exp(summary(modelglm)[["coefficients"]][,1]),2))
+  printt$coeci <- paste0(printt$coeff," (",printt$`2.5 %`,"@",printt$`97.5 %`,")")
+  printt$pvalue <- c(round(summary(modelglm)[["coefficients"]][,4],4))
+  write.table(printt[2:4,4:5],file="test.csv",append=T,sep=",",row.names=T,col.names=T)
+}
+
+###mdsgn <- subset(mdsgn,hv105<=49)
+```
+
+# Table X1
+```{r}
+#Weighted women
+for(out in wout){
+  #cannot show NA category.
+  tab1 <- svyby(as.formula(paste0("~",out)), ~country, wdsgn, svymean, vartype="ci")
+  #leave needed 
+  tab1 <- tab1[,c(1,3,5,7)]
+  colnames(tab1) <- c("country","percent","lowerci","upperci")
+  #format results
+  tab1 <- mutate(tab1, 
+                  printp=paste0(format(round(percent*100,digits=2),trim=T,nsmall=2)),
+                  printci=paste0(" (",
+                                    format(round(lowerci*100,digits=2),trim=T,nsmall=2),", ",
+                                    format(round(upperci*100,digits=2),trim=T,nsmall=2),")"))
+  write.table(tab1,file="test.csv",append=T,sep=",",row.names=F,col.names=T)
+}
+for(out in wout){
+  #cannot show NA category.
+  print(svyciprop(as.formula(paste0("~",out)), wdsgn)*100)
+}
+```
+```{r}
+#Weighted men
+for(out in mout){
+  #cannot show NA category.
+  tab1 <- svyby(as.formula(paste0("~",out)), ~country, mdsgn, svymean, vartype="ci")
+  #leave needed 
+  tab1 <- tab1[,c(1,3,5,7)]
+  colnames(tab1) <- c("country","percent","lowerci","upperci")
+  #format results
+  tab1 <- mutate(tab1, 
+                  printp=paste0(format(round(percent*100,digits=2),trim=T,nsmall=2)),
+                  printci=paste0(" (",
+                                    format(round(lowerci*100,digits=2),trim=T,nsmall=2),", ",
+                                    format(round(upperci*100,digits=2),trim=T,nsmall=2),")"))
+  write.table(out,file="test.csv",append=T,sep=",")
+  write.table(tab1,file="test.csv",append=T,sep=",",row.names=F,col.names=T)
+}
+for(out in mout){
+  #cannot show NA category.
+  print(svyciprop(as.formula(paste0("~",out)), mdsgn)*100)
+}
+```
+
+#Table X2
+```{r}
+#Logistic regression - zero order
+#women
+glm1 <- svyglm(wjust_any~wdis_any2+country,design=wdsgn,family=quasibinomial())
+tidy(glm1,conf.int=T,exponentiate=T)[1:4,]
+#men - wdis
+glm1 <- svyglm(mjust_any~wdis_any2+country,design=mdsgn,family=quasibinomial())
+tidy(glm1,conf.int=T,exponentiate=T)[1:4,]
+#men - mdis
+glm1 <- svyglm(mjust_any~mdis_any2+country,design=mdsgn,family=quasibinomial())
+tidy(glm1,conf.int=T,exponentiate=T)[1:4,]
+#men - no interaction
+glm1 <- svyglm(mjust_any~wdis_any2+mdis_any2+country,design=mdsgn,family=quasibinomial())
+tidy(glm1,conf.int=T,exponentiate=T)[1:4,]
+#men - with interaction
+glm1 <- svyglm(mjust_any~wdis_any2+mdis_any2+wdis_any2*mdis_any2+country,design=mdsgn,family=quasibinomial())
+tidy(glm1,conf.int=T,exponentiate=T)
+```
+```{r}
+# full model
+#Full adjusted model - women, men's data - women, men, both not interaction, both with interaction.
+modelobject1 <- svyglm(wjust_any ~ wdis_any2 + wage+wedu+wlivchild+wwork+wwealth+wurbrur+wmarital+
+                        wtvradio+wfreqmedia+country, 
+               design = wdsgn, family = quasibinomial(link = "logit"))
+modelobject2 <- svyglm(mjust_any ~ wdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+mmarital+
+                        mtvradio+mfreqmedia+mpolygamy+country, 
+               design = mdsgn, family = quasibinomial(link = "logit"))
+modelobject3 <- svyglm(mjust_any ~  mdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+mmarital+
+                        mtvradio+mfreqmedia+mpolygamy+country, 
+               design = mdsgn, family = quasibinomial(link = "logit"))
+modelobject4 <- svyglm(mjust_any ~  wdis_any2 + mdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+mmarital+
+                        mtvradio+mfreqmedia+mpolygamy+country, 
+               design = mdsgn, family = quasibinomial(link = "logit"))
+modelobject5 <- svyglm(mjust_any ~  wdis_any2 + mdis_any2 + wdis_any2*mdis_any2 +mage+medu+mlivchild+mwork+
+                       mwealth+murbrur+mmarital+mtvradio+mfreqmedia+mpolygamy+country, 
+               design = mdsgn, family = quasibinomial(link = "logit"))
+
+# Regression for results
+objs <- list(modelobject1,modelobject2,modelobject3,modelobject4,modelobject5)
+for (obj in objs){
+  print(tidy(obj,conf.int=T, exponentiate=T)[1:4,])
+  print(AIC(obj))
+}
+```
+
+#Table X3 (Edited)
+```{r}
+# get country names
+uc <- sort(unique(mdata$country))
+
+# Run glm one country at a time 
+for(i in c(1:9)){
+  #women
+  glm1 <- svyglm(wjust_any~wdis_any2,design=subset(wdsgn,country==uc[[i]]),family=quasibinomial())
+  #men - no interaction
+  glm2 <- svyglm(mjust_any~wdis_any2+mdis_any2,design=subset(mdsgn,country==uc[[i]]),family=quasibinomial())
+  #men - wdis
+  glm3 <- svyglm(mjust_any~wdis_any2,design=subset(mdsgn,country==uc[[i]]),family=quasibinomial())
+  #men - mdis
+  glm4 <- svyglm(mjust_any~mdis_any2,design=subset(mdsgn,country==uc[[i]]),family=quasibinomial())
+
+
+  objlist <- list(glm1,glm2, glm3, glm4)
+  write.table(uc[[i]],file="test.csv",append=T,sep=",")
+  for (obj in objlist){
+    write.table(paste0(obj[["formula"]]),file="test.csv",append=T,sep=",")
+    printer(obj)
+  }
+}
+
+```
+
+#Table X4 + plotdata
+```{r}
+# get country names
+uc <- sort(unique(mdata$country))
+
+#run full model one country at a time
+#add data to figure dataset
+figdata <- data.frame()
+# women's acceptance-women's disability, etc
+mod <- c("Women's IPV Acceptance", #"Both - Women's Disability","Both - Men's Disability",
+          "Partners' IPV Acceptance" #,"Men's Acceptance - Men's Disability"
+         )
+
+for(i in c(1:9)){
+  if(i==1){
+    #women
+    glm1 <- svyglm(wjust_any ~ wdis_any2 + wage+wedu+wlivchild+wwork+wwealth+wurbrur+wmarital+
+                            wfreqmedia, 
+                   design = subset(wdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+    #men, both disability no interaction.
+    #glm2 <- svyglm(mjust_any ~  wdis_any2 + mdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+mmarital+
+    #                        mfreqmedia, 
+    #               design = subset(mdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+    #just women disability
+    glm3 <- svyglm(mjust_any ~  wdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+mmarital+
+                            mfreqmedia, 
+                   design = subset(mdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+    #just men disability
+    #glm4 <- svyglm(mjust_any ~  mdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+mmarital+
+    #                        mfreqmedia, 
+    #               design = subset(mdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+    }
+  else if (i==4){
+    #women
+    glm1 <- svyglm(wjust_any ~ wdis_any2 + wage+wedu+wlivchild+wwork+wwealth+wurbrur+
+                            wfreqmedia, 
+                   design = subset(wdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+    #men, both disability no interaction.
+    #glm2 <- svyglm(mjust_any ~  wdis_any2 + mdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+
+    #                        mfreqmedia+mpolygamy, 
+    #               design = subset(mdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+    #just women disability
+    glm3 <- svyglm(mjust_any ~  wdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+
+                            mfreqmedia+mpolygamy, 
+                   design = subset(mdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+    #just men disability
+    #glm4 <- svyglm(mjust_any ~  mdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+
+    #                        mfreqmedia+mpolygamy, 
+    #               design = subset(mdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+    }
+  
+  else{
+    #women
+    glm1 <- svyglm(wjust_any ~ wdis_any2 + wage+wedu+wlivchild+wwork+wwealth+wurbrur+wmarital+
+                            wfreqmedia, 
+                   design = subset(wdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+    #men, both disability no interaction.
+    #glm2 <- svyglm(mjust_any ~  wdis_any2 + mdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+mmarital+
+    #                        mfreqmedia+mpolygamy, 
+    #               design = subset(mdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+    #just women disability
+    glm3 <- svyglm(mjust_any ~  wdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+mmarital+
+                            mfreqmedia+mpolygamy, 
+                   design = subset(mdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+    #just women disability
+    #glm4 <- svyglm(mjust_any ~  mdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+mmarital+
+    #                        mfreqmedia+mpolygamy, 
+    #               design = subset(mdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+    }
+  #objlist <- list(glm1,glm2,glm3,glm4)
+  objlist <- list(glm1,glm3)
+  #write.table(uc[[i]],file="test.csv",append=T,sep=",")
+  for (obj in objlist){
+    #write.table(paste0(obj[["formula"]]),file="test.csv",append=T,sep=",")
+    #printer(obj)
+  }
+  #Add data to dataset
+  cty <- as.character(uc[[i]])
+  coeff <- c(exp(summary(glm1)[["coefficients"]][2,1]),
+             #exp(summary(glm2)[["coefficients"]][2,1]),
+             #exp(summary(glm2)[["coefficients"]][3,1]),
+             exp(summary(glm3)[["coefficients"]][2,1]) #,
+             #exp(summary(glm4)[["coefficients"]][2,1])
+             )
+  lowerci <- c(exp(confint(glm1)[2,1]),
+               #exp(confint(glm2)[2,1]),
+               #exp(confint(glm2)[3,1]),
+               exp(confint(glm3)[2,1]) #,
+               #exp(confint(glm4)[2,1])
+               )
+  upperci <- c(exp(confint(glm1)[2,2]),
+               #exp(confint(glm2)[2,2]),
+               #exp(confint(glm2)[3,2]),
+               exp(confint(glm3)[2,2]) #,
+               #exp(confint(glm4)[2,2])
+               )
+  tab1 <- cbind(cty,mod,coeff,lowerci,upperci)
+  figdata <- rbind(figdata,tab1)
+}
+
+#add in pooled data
+glm1 <- svyglm(wjust_any ~ wdis_any2 + wage+wedu+wlivchild+wwork+wwealth+wurbrur+wmarital+
+                        wfreqmedia + country, 
+               design = wdsgn, family = quasibinomial(link = "logit"))
+#glm2 <- svyglm(mjust_any ~  wdis_any2 + mdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+mmarital+
+#                        mfreqmedia + mpolygamy + country, 
+#               design = mdsgn, family = quasibinomial(link = "logit"))
+glm3 <- svyglm(mjust_any ~  wdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+mmarital+
+                        mfreqmedia + mpolygamy + country, 
+               design = mdsgn, family = quasibinomial(link = "logit"))
+#glm4 <- svyglm(mjust_any ~  mdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+mmarital+
+#                        mfreqmedia + mpolygamy + country, 
+#               design = mdsgn, family = quasibinomial(link = "logit"))
+
+cty <- "Overall"
+coeff <- c(exp(summary(glm1)[["coefficients"]][2,1]),
+           #exp(summary(glm2)[["coefficients"]][2,1]),
+           #exp(summary(glm2)[["coefficients"]][3,1]),
+           exp(summary(glm3)[["coefficients"]][2,1]) #,
+           #exp(summary(glm4)[["coefficients"]][2,1])
+           )
+lowerci <- c(exp(confint(glm1)[2,1]),
+             #exp(confint(glm2)[2,1]),
+             #exp(confint(glm2)[3,1]),
+             exp(confint(glm3)[2,1]) #,
+             #exp(confint(glm4)[2,1])
+             )
+upperci <- c(exp(confint(glm1)[2,2]),
+             #exp(confint(glm2)[2,2]),
+             #exp(confint(glm2)[3,2]),
+             exp(confint(glm3)[2,2]) #,
+             #exp(confint(glm4)[2,2])
+             )
+tab1 <- cbind(cty,mod,coeff,lowerci,upperci)
+figdata <- rbind(figdata,tab1)
+
+figdata <- mutate(figdata,
+                  mod=factor(mod,levels=c("Women's IPV Acceptance", #"Both - Women's Disability",
+                  #"Both - Men's Disability",
+                  "Partners' IPV Acceptance" #,
+                  #"Men's Acceptance - Men's Disability"
+                  )),
+                  cty=fct_relevel(cty,"Overall"))
+```
+```{r}
+#print data to excel
+printdata <- mutate(figdata, print=paste0(format(round(as.numeric(coeff),2),trim=T,nsmall=2)," (",
+                                         format(round(as.numeric(lowerci),2),trim=T,nsmall=2),"@",
+                                         format(round(as.numeric(upperci),2),trim=T,nsmall=2), ")"))
+printdata <- pivot_wider(select(printdata,c(cty,mod,print)),names_from=mod,values_from = print)
+write.table(printdata,file="test.csv",append=T,sep=",",row.names=F,col.names=T)
+```
+
+
+## create forest plot
+```{r}
+#country
+figdata <- mutate(figdata,
+                cty = case_when(cty=="Cambodia" ~"Cambodia(2014)",
+                                cty=="Haiti" ~"Haiti(2016-2017)",
+                                cty=="Mali" ~"Mali(2018)",
+                                cty=="Pakistan" ~"Pakistan(2017-2018)",
+                                cty=="Rwanda" ~"Rwanda(2019-2020)",
+                                cty=="Senegal" ~"Senegal(2019)",
+                                cty=="South Africa" ~"South Africa(2016)",
+                                cty=="Timor Leste" ~"Timor Leste(2016)",
+                                cty=="Uganda" ~"Uganda(2016)",
+                                cty=="Overall" ~ "Overall"),
+                cty = factor(cty,levels = c("Overall","Cambodia(2014)","Haiti(2016-2017)",
+                                  "Mali(2018)","Pakistan(2017-2018)",
+                                  "Rwanda(2019-2020)","Senegal(2019)",
+                                  "South Africa(2016)","Timor Leste(2016)","Uganda(2016)")))
+```
+```{r}
+# Use tiff for output
+tiff("test.tiff", units="in", width=10, height=3.5, res=600)
+
+#log scale
+ggplot(figdata, aes(y=cty, x=as.numeric(coeff), 
+                    xmin=as.numeric(lowerci), xmax=as.numeric(upperci))) + 
+  geom_point(size=2) + geom_errorbarh(height=.2) + facet_grid(cols=vars(mod)) + 
+  labs(y="Country",x="OR") + 
+  geom_vline(aes(xintercept = 1),color="black") +
+  #geom_text(aes(label=paste0(format(round(as.numeric(coeff),digits=2),nsmall=2))),size=3,vjust=-0.7) +
+  scale_x_continuous(trans = "log10",breaks = c(0.5,1,2,5),minor_breaks = NULL) + scale_y_discrete(limits=rev) +
+  theme_minimal() + 
+  theme(panel.spacing = unit(2, "lines"),plot.margin=unit(c(1,2,1,1),"lines"),
+        panel.border=element_rect(colour = "black", fill=NA, size=0.5))
+
+dev.off()
+```
+
+
+
+
+#table X5 run full model without media
+```{r}
+# get country names
+uc <- sort(unique(mdata$country))
+
+#run full model one country at a time
+#add data to figure dataset
+figdata <- data.frame()
+# women's acceptance-women's disability, etc
+mod <- c("Women's acceptance","Both - Women's Disability","Both - Men's Disability",
+          "Men's Acceptance - Women's Disability","Men's Acceptance - Men's Disability")
+
+for(i in c(1:9)){
+  if(i==1){
+    #women
+    glm1 <- svyglm(wjust_any ~ wdis_any2 + wage+wedu+wlivchild+wwork+wwealth+wurbrur+wmarital, 
+                   design = subset(wdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+    #men, both disability no interaction.
+    glm2 <- svyglm(mjust_any ~  wdis_any2 + mdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+mmarital, 
+                   design = subset(mdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+    #just women disability
+    glm3 <- svyglm(mjust_any ~  wdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+mmarital, 
+                   design = subset(mdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+    #just men disability
+    glm4 <- svyglm(mjust_any ~  mdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+mmarital, 
+                   design = subset(mdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+    }
+  else if (i==4){
+    #women
+    glm1 <- svyglm(wjust_any ~ wdis_any2 + wage+wedu+wlivchild+wwork+wwealth+wurbrur, 
+                   design = subset(wdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+    #men, both disability no interaction.
+    glm2 <- svyglm(mjust_any ~  wdis_any2 + mdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+mpolygamy, 
+                   design = subset(mdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+    #just women disability
+    glm3 <- svyglm(mjust_any ~  wdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+mpolygamy, 
+                   design = subset(mdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+    #just men disability
+    glm4 <- svyglm(mjust_any ~  mdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+mpolygamy, 
+                   design = subset(mdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+    }
+  
+  else{
+    #women
+    glm1 <- svyglm(wjust_any ~ wdis_any2 + wage+wedu+wlivchild+wwork+wwealth+wurbrur+wmarital, 
+                   design = subset(wdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+    #men, both disability no interaction.
+    glm2 <- svyglm(mjust_any ~  wdis_any2 + mdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+mmarital+ 
+                     mpolygamy, 
+                   design = subset(mdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+    #just women disability
+    glm3 <- svyglm(mjust_any ~  wdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+mmarital+
+                            mpolygamy, 
+                   design = subset(mdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+    #just women disability
+    glm4 <- svyglm(mjust_any ~  mdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+mmarital+
+                            mpolygamy, 
+                   design = subset(mdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+    }
+  objlist <- list(glm1,glm2,glm3,glm4)
+  #write.table(uc[[i]],file="test.csv",append=T,sep=",")
+  for (obj in objlist){
+    #write.table(paste0(obj[["formula"]]),file="test.csv",append=T,sep=",")
+    #printer(obj)
+  }
+  #Add data to dataset
+  cty <- as.character(uc[[i]])
+  coeff <- c(exp(summary(glm1)[["coefficients"]][2,1]),
+             exp(summary(glm2)[["coefficients"]][2,1]),
+             exp(summary(glm2)[["coefficients"]][3,1]),
+             exp(summary(glm3)[["coefficients"]][2,1]),
+             exp(summary(glm4)[["coefficients"]][2,1]))
+  lowerci <- c(exp(confint(glm1)[2,1]),
+               exp(confint(glm2)[2,1]),
+               exp(confint(glm2)[3,1]),
+               exp(confint(glm3)[2,1]),
+               exp(confint(glm4)[2,1]))
+  upperci <- c(exp(confint(glm1)[2,2]),
+               exp(confint(glm2)[2,2]),
+               exp(confint(glm2)[3,2]),
+               exp(confint(glm3)[2,2]),
+               exp(confint(glm4)[2,2]))
+  tab1 <- cbind(cty,mod,coeff,lowerci,upperci)
+  figdata <- rbind(figdata,tab1)
+}
+
+#add in pooled data
+glm1 <- svyglm(wjust_any ~ wdis_any2 + wage+wedu+wlivchild+wwork+wwealth+wurbrur+wmarital+
+                         country, 
+               design = wdsgn, family = quasibinomial(link = "logit"))
+glm2 <- svyglm(mjust_any ~  wdis_any2 + mdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+mmarital+
+                        mpolygamy + country, 
+               design = mdsgn, family = quasibinomial(link = "logit"))
+glm3 <- svyglm(mjust_any ~  wdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+mmarital+
+                        mpolygamy + country, 
+               design = mdsgn, family = quasibinomial(link = "logit"))
+glm4 <- svyglm(mjust_any ~  mdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+mmarital+
+                        mpolygamy + country, 
+               design = mdsgn, family = quasibinomial(link = "logit"))
+
+cty <- "Overall"
+coeff <- c(exp(summary(glm1)[["coefficients"]][2,1]),
+           exp(summary(glm2)[["coefficients"]][2,1]),
+           exp(summary(glm2)[["coefficients"]][3,1]),
+           exp(summary(glm3)[["coefficients"]][2,1]),
+           exp(summary(glm4)[["coefficients"]][2,1]))
+lowerci <- c(exp(confint(glm1)[2,1]),
+             exp(confint(glm2)[2,1]),
+             exp(confint(glm2)[3,1]),
+             exp(confint(glm3)[2,1]),
+             exp(confint(glm4)[2,1]))
+upperci <- c(exp(confint(glm1)[2,2]),
+             exp(confint(glm2)[2,2]),
+             exp(confint(glm2)[3,2]),
+             exp(confint(glm3)[2,2]),
+             exp(confint(glm4)[2,2]))
+tab1 <- cbind(cty,mod,coeff,lowerci,upperci)
+figdata <- rbind(figdata,tab1)
+
+figdata <- mutate(figdata,
+                  mod=factor(mod,levels=c("Women's acceptance","Both - Women's Disability",
+                  "Both - Men's Disability","Men's Acceptance - Women's Disability",
+                  "Men's Acceptance - Men's Disability")),
+                  cty=fct_relevel(cty,"Overall"))
+
+#print data to excel
+printdata <- mutate(figdata, print=paste0(format(round(as.numeric(coeff),2),trim=T,nsmall=2)," (",
+                                         format(round(as.numeric(lowerci),2),trim=T,nsmall=2),"@",
+                                         format(round(as.numeric(upperci),2),trim=T,nsmall=2), ")"))
+printdata <- pivot_wider(select(printdata,c(cty,mod,print)),names_from=mod,values_from = print)
+write.table(printdata,file="test.csv",append=T,sep=",",row.names=F,col.names=T)
+```
+
+
+
+# Not for use starting here
+```{r}
+# Checking variable consistency
+paste0(names(TLwa),names(SNw))
+names(TLwa)==names(SNw)
+
+# Checking distribution
+for (out in "wjust_any"){
+  test <- svyby(as.formula(paste0("~",out)), ~country, wdsgn, svymean, vartype="ci")
+}
+for (out in wcov){
+  print(group_by(wdata,get(out)) %>% summarize(n=n()))
+}
+
+#correlation of several variables
+modelobject <- svyglm(wjust_any ~ wdis_any2 + wage+wedu+wlivchild+wwork+wwealth+wurbrur+wmarital+
+                        wliteracy+wtvradio+wfreqmedia+country, 
+               design = wdsgn, family = quasibinomial(link = "logit"))
+write.table(summary(modelobject,correlation=T)[["correlation"]],file="test.csv",append=T,sep=",")
+modelobject <- svyglm(mjust_any ~ wdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+mmarital+
+                        mliteracy+mtvradio+mfreqmedia+mpolygamy+country, 
+               design = mdsgn, family = quasibinomial(link = "logit"))
+write.table(summary(modelobject,correlation=T)[["correlation"]],file="test.csv",append=T,sep=",")
+
+
+#Individual country regression
+uc <- unique(mdata$country)
+for (cty in uc){
+modelobject <- svyglm(wjust_any ~ wdis_any2 + wage+wedu+wlivchild+wwork+wwealth+wurbrur+wmarital+
+                        wliteracy+wtvradio+wfreqmedia, 
+               design = subset(wdsgn,country==cty), family = quasibinomial(link = "logit"))
+print(tidy(modelobject,conf.int=T, exponentiate=T)[2,])
+}
+
+
+```
+
+
+```{r}
+#select better model freqmedia,tvradio
+#decided to use freqmedia.
+uc <- sort(unique(mdata$country))
+for(i in c(1:9)){
+  if (i==1){#women
+  glm1 <- svyglm(wjust_any ~ wdis_any2 + wage+wedu+wlivchild+wwork+wwealth+wurbrur+wmarital+
+                          wfreqmedia, 
+                 design = subset(wdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+  #men, no interaction
+  glm2 <- svyglm(mjust_any ~  wdis_any2 + mdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+mmarital+
+                          mfreqmedia, 
+                 design = subset(mdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+  #women
+  glm3 <- svyglm(wjust_any ~ wdis_any2 + wage+wedu+wlivchild+wwork+wwealth+wurbrur+wmarital+
+                          wtvradio, 
+                 design = subset(wdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+  #men, no interaction
+  glm4 <- svyglm(mjust_any ~  wdis_any2 + mdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+mmarital+
+                          mtvradio, 
+                 design = subset(mdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))}
+  else if(i==4){#women
+  glm1 <- svyglm(wjust_any ~ wdis_any2 + wage+wedu+wlivchild+wwork+wwealth+wurbrur+wmarital+
+                          wfreqmedia, 
+                 design = subset(wdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+  #men, no interaction
+  glm2 <- svyglm(mjust_any ~  wdis_any2 + mdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+
+                          mfreqmedia+mpolygamy, 
+                 design = subset(mdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+  #women
+  glm3 <- svyglm(wjust_any ~ wdis_any2 + wage+wedu+wlivchild+wwork+wwealth+wurbrur+wmarital+
+                          wtvradio, 
+                 design = subset(wdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+  #men, no interaction
+  glm4 <- svyglm(mjust_any ~  wdis_any2 + mdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+
+                          mtvradio+mpolygamy, 
+                 design = subset(mdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))}
+  else{#women
+  glm1 <- svyglm(wjust_any ~ wdis_any2 + wage+wedu+wlivchild+wwork+wwealth+wurbrur+wmarital+
+                          wfreqmedia, 
+                 design = subset(wdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+  #men, no interaction
+  glm2 <- svyglm(mjust_any ~  wdis_any2 + mdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+mmarital+
+                          mfreqmedia+mpolygamy, 
+                 design = subset(mdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+  #women
+  glm3 <- svyglm(wjust_any ~ wdis_any2 + wage+wedu+wlivchild+wwork+wwealth+wurbrur+wmarital+
+                          wtvradio, 
+                 design = subset(wdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+  #men, no interaction
+  glm4 <- svyglm(mjust_any ~  wdis_any2 + mdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+mmarital+
+                          mtvradio+mpolygamy, 
+                 design = subset(mdsgn,country==uc[[i]]), family = quasibinomial(link = "logit"))
+  }
+  print(uc[[i]])
+  print(AIC(glm1))
+  print(AIC(glm2))
+  print(AIC(glm3))
+  print(AIC(glm4))
+}
+```
+
+
+#New start
+```{r}
+library(haven)
+library(dplyr)
+library(survey)
+library(tidyverse)
+library(openxlsx)
+library(ggplot2)
+library(scales)
+```
+
+#check child marriage
+```{r}
+# load data
+load("cdata.Rdata")
+
+wdata2 <- wdata %>% mutate(
+  marryaged=case_when(#wv511<16 ~ "<16",
+                      wv511<18 ~ "<18",
+                  wv511>=18 ~ ">=18"),
+  marryaged=factor(marryaged,levels=c(">=18","<18")),
+  
+  cmdis = case_when (wv511 <18 & wdis_any2 == "Yes" ~ "disability & CM",
+                     wv511 >=18 & wdis_any2 == "Yes" ~ "disability & no CM",
+                     wv511 >=18 & wdis_any2 == "No" ~ "no disability & no CM",
+                     wv511 <18 & wdis_any2 == "No" ~ "no disability & CM"),
+  cmdis = factor(cmdis,levels=c("no disability & no CM","disability & CM",
+                 "disability & no CM", "no disability & CM")),
+  )
+
+wdesg <- svydesign(id=~wv021, strata=~wv023, weights=~wt, nest = TRUE, data = wdata2)
+
+#wjust_any ~ marryaged
+uc <- unique(wdata2$country)
+for (cty in uc){
+  print(cty)
+  modelobject <- svyglm(wjust_any ~ marryaged, 
+                design = subset(wdesg,country==cty & whv105<=24 & whv105>=20 & wv502!=0), 
+                family = quasibinomial(link = "logit"))
+  print(tidy(modelobject,conf.int=T, exponentiate=T))
+}
+
+#wjust_any ~ cmdis
+uc <- unique(wdata2$country)
+for (cty in uc){
+  print(cty)
+  modelobject <- svyglm(wjust_any ~ cmdis, 
+                design = subset(wdesg,country==cty & whv105<=24 & whv105>=20 & wv502!=0), 
+                family = quasibinomial(link = "logit"))
+  print(tidy(modelobject,conf.int=T, exponentiate=T))
+}
+
+# & wdis_any2=="Yes"
+# wdis_any2 + 
+# filter(whv105<=24 & whv105>=20 & wv502!=0)
+```
+
+#new ideas
+```{r}
+# load data
+load("cdata.Rdata")
+
+mdata2 <- mdata %>% mutate(
+  cdis_any2=case_when(wdis_any2=="Yes" & mdis_any2=="Yes" ~ "Both",
+                      wdis_any2=="Yes" & mdis_any2=="No" ~ "Women",
+                      wdis_any2=="No" & mdis_any2=="Yes" ~ "Men",
+                      wdis_any2=="No" & mdis_any2=="No" ~ "None",),
+  cdis_any2=factor(cdis_any2,levels=c("Both","Women","Men","None")),
+  
+  cjust_any=case_when(wjust_any=="Yes" & mjust_any=="Yes" ~ "Both",
+                      wjust_any=="Yes" & mjust_any=="No" ~ "Women",
+                      wjust_any=="No" & mjust_any=="Yes" ~ "Men",
+                      wjust_any=="No" & mjust_any=="No" ~ "None",),
+  cjust_any=factor(cjust_any,levels=c("Both","Women","Men","None")),
+)
+
+mdesg <- svydesign(id=~mv021, strata=~mv023, weights=~wt, nest = TRUE, data = mdata2)
+
+uc <- unique(mdata2$country)
+for (cty in uc){
+  print(cty)
+  tab1 <- svytable(~cdis_any2+cjust_any,design=subset(mdesg,country==cty))
+  print(round(prop.table(tab1,1)*100,1))
+  print(svychisq(~cdis_any2+cjust_any,design=subset(mdesg,country==cty)))
+}
+
+
+#wrong
+uc <- unique(mdata2$country)
+for (cty in uc){
+  print(cty)
+  modelobject <- svyglm(cjust_any ~ cdis_any2, 
+                design = subset(mdesg,country==cty), 
+                family = quasibinomial(link = "logit"))
+  print(tidy(modelobject,conf.int=T, exponentiate=T))
+}
+```
+
+

@@ -1,0 +1,996 @@
+---
+title: "Rwanda"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(max.print=50000) 
+
+library(haven)
+library(dplyr)
+library(labelled)
+library(tidyverse)
+library(mice)
+library(survey)
+library(arsenal)
+```
+
+##Read data
+```{r}
+#get all data names
+datanames <- list.files(pattern="\\.DTA$")
+shortnames <- unique(str_sub(datanames,1,2))  #yield country names short version
+```
+
+
+```{r}
+#combine files
+sn <- shortnames
+
+PR <- read_dta(str_subset(datanames,pattern=paste0(sn,"PR\\w+")))
+IR <- read_dta(str_subset(datanames,pattern=paste0(sn,"IR\\w+")))
+MR <- read_dta(str_subset(datanames,pattern=paste0(sn,"MR\\w+")))
+CR <- read_dta(str_subset(datanames,pattern=paste0(sn,"CR\\w+")))
+mergepr <- PR %>% select(hv001,hv002,hvidx,num_range("hdis", 1:8),
+                         hv105,hv025,hv270,hv207,hv208)
+mergeir <- IR %>% select(caseid,v001,v002,v003,v034,v005,d005,
+                         v021,v023,v024,
+                         v744a,v744b,v744c,v744d,v744e,
+                         v044, starts_with("d103"),d104,starts_with("d105"),
+                         d106,d107,d108,
+                         v106,v501,v502,v511,v218,v716,v130,v155,v739,v157,v158,v159,v171a,v171b)
+mergemr <- MR %>% select(mcaseid,mv001,mv002,mv003,mv005,mv021,mv023,
+                         mv744a,mv744b,mv744c,mv744d,mv744e,
+                         mv034_1,mv034_2,mv034_3,mv034_4,mv035,
+                         mv106,mv501,mv502,mv511,mv218,mv716,mv190,
+                         mv130,mv155,mv739,mv157,mv158,mv159,mv171a,mv171b)
+
+#assign: help with text format object names
+assign(paste0(sn,"w"), right_join(mergepr,mergeir,by=c("hv001"="v001","hv002"="v002","hvidx"="v003"),
+                 copy=FALSE))
+assign(paste0(sn,"w"),rename_with(get(paste0(sn,"w")), ~ paste0("w", .x)))
+assign(paste0(sn,"m"), 
+       inner_join(right_join(mergepr,mergemr,by=c("hv001"="mv001","hv002"="mv002","hvidx"="mv003"),copy=TRUE),
+                  get(paste0(sn,"w")),by=c("hv001"="whv001","hv002"="whv002","hvidx"="wv034"),copy=TRUE))
+
+```
+
+#generate codebook
+```{r}
+# options(max.print = 5000000)
+# sink("PRcodebook.txt",append=TRUE)
+# var_label(PR)
+# sink("IRcodebook.txt",append=TRUE)
+# var_label(IR)
+# sink("MRcodebook.txt",append=TRUE)
+# var_label(MR)
+# sink("CRcodebook.txt",append=TRUE)
+# var_label(CR)
+# sink()
+# closeAllConnections()
+```
+
+#Data manipulation
+```{r}
+RWw <- mutate(RWw,
+      # Ever IPV
+      #ever any physical violence
+      wvio_phys = ifelse(wd106 == 1 | wd107 == 1, 1, 0),
+      #every any phys or sexual IPV
+      wvio_sxph = ifelse(wvio_phys==1| wd108 == 1, "Yes", "No"),
+      #ever any violence
+      wvio_any = ifelse(wd104 ==1 | wd108 ==1 | wvio_phys == 1, "Yes", "No"),
+                      wvio_any=factor(wvio_any,levels=c("No","Yes")),
+      
+      # Disability
+      #for dis any
+      wnsee = case_when (whdis2 %in% c(3,4)  ~ 1,
+                        !is.na(whdis2)  & whdis2 %in% c(1:4)   ~ 0),
+      #for dis any 2
+      wnsee2 = case_when (whdis2 %in% c(2,3,4)  ~1,
+                         !is.na(whdis2)  & whdis2 %in% c(1:4)  ~ 0),
+      
+      #for dis any
+      wnhear = case_when (whdis4 %in% c(3,4)  ~ 1,
+                        !is.na(whdis4)  & whdis4 %in% c(1:4)   ~ 0),
+      #for dis any 2
+      wnhear2 = case_when (whdis4 %in% c(2,3,4)  ~1,
+                         !is.na(whdis4)  & whdis4 %in% c(1:4)  ~ 0),
+      
+      #any disability
+      wdis_any = ifelse (wnsee == 1 |wnhear == 1 | whdis5 %in% c(3,4)| whdis6 %in% c(3,4)| whdis7 %in% c(3,4)| whdis8 %in% c(3,4), "Yes", "No"),
+                wdis_any=factor(wdis_any,levels=c("No","Yes")),
+      
+      #any disability - some, a lot, can't at all
+      wdis_any2 = ifelse (wnsee2 == 1 |wnhear2 == 1 | whdis5 %in% c(2,3,4)| whdis6 %in% c(2,3,4)| whdis7 %in% c(2,3,4)| whdis8 %in% c(2,3,4), "Yes", "No"),
+                wdis_any2=factor(wdis_any2,levels=c("No","Yes")),
+      
+      #disability spectrum variable - collapsed some+a lot
+      wdis_sp1=case_when(wnsee==1 & wnhear==1 & whdis5==1 & whdis6==1 & whdis7==1 & whdis8==1 ~ 0,
+                        wnsee==4 | wnhear==4 | whdis5==4 | whdis6==4 | whdis7==4 | whdis8==4 ~ 2,
+                        wnsee %in% c(2,3) |wnhear %in% c(2,3) | whdis5 %in% c(2,3)| whdis6 %in% c(2,3)| whdis7 %in% c(2,3)| whdis8 %in% c(2,3) ~1,
+                        TRUE ~ 0
+      ),
+      #disability spectrum variable - collapsed a lot+cannot
+      wdis_sp2=case_when(wnsee==1 & wnhear==1 & whdis5==1 & whdis6==1 & whdis7==1 & whdis8==1 ~ 0,
+                        wnsee %in% c(3,4) |wnhear %in% c(3,4) | whdis5 %in% c(3,4)| whdis6 %in% c(3,4)| whdis7 %in% c(3,4)| whdis8 %in% c(3,4) ~ 2,
+                        wnsee==2 | wnhear==2 | whdis5==2 | whdis6==2 | whdis7==2 | whdis8==2 ~ 1,
+                        TRUE ~ 0),
+      #number of disabilities
+      wdis_num=(wnsee %in% c(3,4))*1+(wnhear %in% c(3,4))*1+(whdis5 %in% c(3,4))*1+(whdis6 %in% c(3,4))*1+(whdis7 %in% c(3,4))*1+(whdis8 %in% c(3,4))*1,
+      
+      #Justification
+      wjust_any=case_when(wv744a==1|wv744b==1|wv744c==1|wv744d==1|wv744e==1 ~"Yes",
+                          TRUE ~ "No"),
+                wjust_any=factor(wjust_any,levels=c("No","Yes")),
+      wjust_num=(wv744a==1)+(wv744b==1)+(wv744c==1)+(wv744d==1)+(wv744e==1),
+      
+      
+      #other factors
+      wage = case_when (between(whv105, 0, 24) ~ "less than 25", 
+                               between(whv105, 25, 35) ~ "25-35", 
+                               TRUE ~ "35+"),
+                wage = factor (wage,levels = c("less than 25","25-35","35+")),
+      wedu=case_when(wv106==0 ~ "No education",
+                            wv106==1 ~ "Primary",
+                            wv106==2 ~ "Secondary",
+                            wv106==3 ~ "Higher"),
+                wedu=factor(wedu,levels = c("No education","Primary","Secondary","Higher")),
+      wlivchild = case_when(wv218==0 ~ "None",
+                            wv218>=1 & wv218<=3 ~"1-3",
+                            wv218>=4 ~ "4+"),
+                wlivchild=factor(wlivchild,levels = c("None","1-3","4+")),
+      wwork = case_when(wv716==0 ~ "Unemployed",
+                        !is.na(wv716) ~ "Employed"),
+                wwork=factor(wwork,levels = c("Unemployed","Employed"),exclude=NULL),
+      wwealth=case_when(whv270==1 ~ "Poorest",
+                        whv270==2 ~ "Poorer",
+                        whv270==3 ~ "Middle",
+                        whv270==4 ~ "Richer",
+                        whv270==5 ~ "Richest"),
+                wwealth=factor(wwealth,levels = c("Poorest","Poorer","Middle","Richer","Richest")),
+      
+      wurbrur = case_when(whv025==1 ~ "Urban",
+                          whv025==2 ~ "Rural"),
+                wurbrur=factor(wurbrur,levels = c("Urban","Rural")),
+      wmarital = case_when(wv501==0 ~ "Never married",
+                           wv501==1 ~ "Married",
+                           wv501==2 ~ "Living together",
+                           wv501==3 ~ "Widowed",
+                           wv501==4 ~ "Divorced",
+                           wv501==5 ~ "No longer living together / separated"),
+                wmarital=factor(wmarital,levels = c("Never married","Married","Living together", 
+                                            "Divorced","Widowed","No longer living together / separated")),
+      wliteracy = case_when(wv155==0 ~ "Cannot read at all",
+                            wv155==1 ~ "Able to read only parts of sentence",
+                            wv155==2 ~ "Able to read whole sentence",
+                            wv155==3 ~ "No card with required language",
+                            wv155==4 ~ "Blind/visually impaired"),
+                wliteracy = factor(wliteracy,levels = c("Cannot read at all",
+                                  "Able to read only parts of sentence","Able to read whole sentence",
+                                  "No card with required language","Blind/visually impaired")),
+      wreligion = case_when(wv130==97 ~ "No religion",
+                            wv130==1 ~ "Catholic",
+                            wv130==2 ~ "Protestant",
+                            wv130==3 ~ "Adventist",
+                            wv130==4 ~ "Muslim",
+                            wv130==8 ~ "Jehovah Witness",
+                            TRUE ~ "Other"),
+                wreligion = factor(wreligion,levels=c("No religion","Catholic","Protestant","Adventist",
+                                                      "Muslim","Jehovah Witness","Other")),
+      wtvradio = case_when(whv207==0 | whv208==0 ~ "Yes",
+                           TRUE ~ "No"),
+                wtvradio = factor(wtvradio,levels = c("No","Yes")),
+      wfreqmedia = case_when(wv157==2 | wv158==2 | wv159==2 ~ "At least once a week",
+                             wv157==1 | wv158==1 | wv159==1 ~ "Less than once a week",
+                             TRUE ~ "Not at all"),
+                wfreqmedia = factor(wfreqmedia,levels=c("Not at all","Less than once a week",
+                                                        "At least once a week")),
+      winternet = case_when(wv171b==0 ~ "Not at all",
+                            wv171b==1 ~ "Less than once a week",
+                            wv171b==2 ~ "At least once a week",
+                            wv171b==3 ~ "Almost every day"),
+                winternet = factor(winternet,levels=c("Not at all","Less than once a week",
+                                                      "At least once a week","Almost every day")),
+      
+      )
+
+```
+
+```{r}
+RWm <- mutate(RWm,
+      # Ever IPV
+      #ever any physical violence
+      wvio_phys = ifelse(wd106 == 1 | wd107 == 1, 1, 0),
+      #every any phys or sexual IPV
+      wvio_sxph = ifelse(wvio_phys==1| wd108 == 1, "Yes", "No"),
+      #ever any violence
+      wvio_any = ifelse(wd104 ==1 | wd108 ==1 | wvio_phys == 1, "Yes", "No"),
+                      wvio_any=factor(wvio_any,levels=c("No","Yes")),
+      
+      # Disability
+      #for dis any
+      wnsee = case_when (whdis2 %in% c(3,4)  ~ 1,
+                        !is.na(whdis2)  & whdis2 %in% c(1:4)   ~ 0),
+      #for dis any 2
+      wnsee2 = case_when (whdis2 %in% c(2,3,4)  ~1,
+                         !is.na(whdis2)  & whdis2 %in% c(1:4)  ~ 0),
+      
+      #for dis any
+      wnhear = case_when (whdis4 %in% c(3,4)  ~ 1,
+                        !is.na(whdis4)  & whdis4 %in% c(1:4)   ~ 0),
+      #for dis any 2
+      wnhear2 = case_when (whdis4 %in% c(2,3,4)  ~1,
+                         !is.na(whdis4)  & whdis4 %in% c(1:4)  ~ 0),  
+      
+      #any disability
+      wdis_any = ifelse (wnsee == 1 |wnhear == 1 | whdis5 %in% c(3,4)| whdis6 %in% c(3,4)| whdis7 %in% c(3,4)| whdis8 %in% c(3,4), "Yes", "No"),
+                wdis_any=factor(wdis_any,levels=c("No","Yes")),
+      
+      #any disability - some, a lot, can't at all
+      wdis_any2 = ifelse (wnsee2 == 1 |wnhear2 == 1 | whdis5 %in% c(2,3,4)| whdis6 %in% c(2,3,4)| whdis7 %in% c(2,3,4)| whdis8 %in% c(2,3,4), "Yes", "No"),
+                wdis_any2=factor(wdis_any2,levels=c("No","Yes")),
+      
+      #disability spectrum variable - collapsed some+a lot
+      wdis_sp1=case_when(wnsee==1 & wnhear==1 & whdis5==1 & whdis6==1 & whdis7==1 & whdis8==1 ~ 0,
+                        wnsee==4 | wnhear==4 | whdis5==4 | whdis6==4 | whdis7==4 | whdis8==4 ~ 2,
+                        wnsee %in% c(2,3) |wnhear %in% c(2,3) | whdis5 %in% c(2,3)| whdis6 %in% c(2,3)| whdis7 %in% c(2,3)| whdis8 %in% c(2,3) ~1,
+                        TRUE ~ 0),
+      #disability spectrum variable - collapsed a lot+cannot
+      wdis_sp2=case_when(wnsee==1 & wnhear==1 & whdis5==1 & whdis6==1 & whdis7==1 & whdis8==1 ~ 0,
+                        wnsee %in% c(3,4) |wnhear %in% c(3,4) | whdis5 %in% c(3,4)| whdis6 %in% c(3,4)| whdis7 %in% c(3,4)| whdis8 %in% c(3,4) ~ 2,
+                        wnsee==2 | wnhear==2 | whdis5==2 | whdis6==2 | whdis7==2 | whdis8==2 ~ 1,
+                        TRUE ~ 0),
+      #number of disabilities
+      wdis_num=(wnsee %in% c(3,4))*1+(wnhear %in% c(3,4))*1+(whdis5 %in% c(3,4))*1+(whdis6 %in% c(3,4))*1+(whdis7 %in% c(3,4))*1+(whdis8 %in% c(3,4))*1,
+      
+      #Justification
+      wjust_any=case_when(wv744a==1|wv744b==1|wv744c==1|wv744d==1|wv744e==1 ~"Yes",
+                          TRUE ~ "No"),
+                wjust_any=factor(wjust_any,levels=c("No","Yes")),
+      wjust_num=(wv744a==1)+(wv744b==1)+(wv744c==1)+(wv744d==1)+(wv744e==1),
+      
+      
+      #other factors
+      wage = case_when (between(whv105, 0, 24) ~ "less than 25", 
+                               between(whv105, 25, 35) ~ "25-35", 
+                               TRUE ~ "35+"),
+                wage = factor (wage,levels = c("less than 25","25-35","35+")),
+      wedu=case_when(wv106==0 ~ "No education",
+                            wv106==1 ~ "Primary",
+                            wv106==2 ~ "Secondary",
+                            wv106==3 ~ "Higher"),
+                wedu=factor(wedu,levels = c("No education","Primary","Secondary","Higher")),
+      wlivchild = case_when(wv218==0 ~ "None",
+                            wv218>=1 & wv218<=3 ~"1-3",
+                            wv218>=4 ~ "4+"),
+                wlivchild=factor(wlivchild,levels = c("None","1-3","4+")),
+      wwork = case_when(wv716==0 ~ "Unemployed",
+                        !is.na(wv716) ~ "Employed"),
+                wwork=factor(wwork,levels = c("Unemployed","Employed"),exclude=NULL),
+      wwealth=case_when(whv270==1 ~ "Poorest",
+                        whv270==2 ~ "Poorer",
+                        whv270==3 ~ "Middle",
+                        whv270==4 ~ "Richer",
+                        whv270==5 ~ "Richest"),
+                wwealth=factor(wwealth,levels = c("Poorest","Poorer","Middle","Richer","Richest")),
+      
+      wurbrur = case_when(whv025==1 ~ "Urban",
+                          whv025==2 ~ "Rural"),
+                wurbrur=factor(wurbrur,levels = c("Urban","Rural")),
+      wmarital = case_when(wv501==0 ~ "Never married",
+                           wv501==1 ~ "Married",
+                           wv501==2 ~ "Living together",
+                           wv501==3 ~ "Widowed",
+                           wv501==4 ~ "Divorced",
+                           wv501==5 ~ "No longer living together / separated"),
+                wmarital=factor(wmarital,levels = c("Never married","Married","Living together", 
+                                            "Divorced","Widowed","No longer living together / separated")),
+      wliteracy = case_when(wv155==0 ~ "Cannot read at all",
+                            wv155==1 ~ "Able to read only parts of sentence",
+                            wv155==2 ~ "Able to read whole sentence",
+                            wv155==3 ~ "No card with required language",
+                            wv155==4 ~ "Blind/visually impaired"),
+                wliteracy = factor(wliteracy,levels = c("Cannot read at all",
+                                  "Able to read only parts of sentence","Able to read whole sentence",
+                                  "No card with required language","Blind/visually impaired")),
+      wreligion = case_when(wv130==97 ~ "No religion",
+                            wv130==1 ~ "Catholic",
+                            wv130==2 ~ "Protestant",
+                            wv130==3 ~ "Adventist",
+                            wv130==4 ~ "Muslim",
+                            wv130==8 ~ "Jehovah Witness",
+                            TRUE ~ "Other"),
+                wreligion = factor(wreligion,levels=c("No religion","Catholic","Protestant","Adventist",
+                                                      "Muslim","Jehovah Witness","Other")),
+      wtvradio = case_when(whv207==0 | whv208==0 ~ "Yes",
+                           TRUE ~ "No"),
+                wtvradio = factor(wtvradio,levels = c("No","Yes")),
+      wfreqmedia = case_when(wv157==2 | wv158==2 | wv159==2 ~ "At least once a week",
+                             wv157==1 | wv158==1 | wv159==1 ~ "Less than once a week",
+                             TRUE ~ "Not at all"),
+                wfreqmedia = factor(wfreqmedia,levels=c("Not at all","Less than once a week",
+                                                        "At least once a week")),
+      winternet = case_when(wv171b==0 ~ "Not at all",
+                            wv171b==1 ~ "Less than once a week",
+                            wv171b==2 ~ "At least once a week",
+                            wv171b==3 ~ "Almost every day"),
+                winternet = factor(winternet,levels=c("Not at all","Less than once a week",
+                                                      "At least once a week","Almost every day")),
+      # Men
+      # Disability
+      #for dis any
+      mnsee = case_when (hdis2 %in% c(3,4)  ~ 1,
+                        !is.na(hdis2)  & hdis2 %in% c(1:4)   ~ 0),
+      #for dis any 2
+      mnsee2 = case_when (hdis2 %in% c(2,3,4)  ~1,
+                         !is.na(hdis2)  & hdis2 %in% c(1:4)  ~ 0),
+      
+      #for dis any
+      mnhear = case_when (hdis4 %in% c(3,4)  ~ 1,
+                        !is.na(hdis4)  & hdis4 %in% c(1:4)   ~ 0),
+      #for dis any 2
+      mnhear2 = case_when (hdis4 %in% c(2,3,4)  ~1,
+                         !is.na(hdis4)  & hdis4 %in% c(1:4)  ~ 0),    
+      
+      #any disability
+      mdis_any = ifelse (mnsee == 1 |mnhear == 1 | hdis5 %in% c(3,4)| hdis6 %in% c(3,4)| hdis7 %in% c(3,4)| hdis8 %in% c(3,4), "Yes", "No"),
+                mdis_any=factor(mdis_any,levels=c("No","Yes")),
+      
+      #any disability - some, a lot, can't at all
+      mdis_any2 = ifelse (mnsee2 == 1 |mnhear2 == 1 | hdis5 %in% c(2,3,4)| hdis6 %in% c(2,3,4)| hdis7 %in% c(2,3,4)| hdis8 %in% c(2,3,4), "Yes", "No"),
+                mdis_any2=factor(mdis_any2,levels=c("No","Yes")),
+      
+      #disability spectrum variable - collapsed some+a lot
+      mdis_sp1=case_when(mnsee==1 & mnhear==1 & hdis5==1 & hdis6==1 & hdis7==1 & hdis8==1 ~ 0,
+                        mnsee==4 | mnhear==4 | hdis5==4 | hdis6==4 | hdis7==4 | hdis8==4 ~ 2,
+                        mnsee %in% c(2,3) |mnhear %in% c(2,3) | hdis5 %in% c(2,3)| hdis6 %in% c(2,3)| hdis7 %in% c(2,3)| hdis8 %in% c(2,3) ~1,
+                        TRUE ~ 0
+      ),
+      #disability spectrum variable - collapsed a lot+cannot
+      mdis_sp2=case_when(mnsee==1 & mnhear==1 & hdis5==1 & hdis6==1 & hdis7==1 & hdis8==1 ~ 0,
+                        mnsee %in% c(3,4) |mnhear %in% c(3,4) | hdis5 %in% c(3,4)| hdis6 %in% c(3,4)| hdis7 %in% c(3,4)| hdis8 %in% c(3,4) ~ 2,
+                        mnsee==2 | mnhear==2 | hdis5==2 | hdis6==2 | hdis7==2 | hdis8==2 ~ 1,
+                        TRUE ~ 0),
+      #number of disabilities
+      mdis_num=(mnsee %in% c(3,4))*1+(mnhear %in% c(3,4))*1+(hdis5 %in% c(3,4))*1+(hdis6 %in% c(3,4))*1+(hdis7 %in% c(3,4))*1+(hdis8 %in% c(3,4))*1,
+      
+      #Justification
+      mjust_any=case_when(mv744a==1|mv744b==1|mv744c==1|mv744d==1|mv744e==1 ~"Yes",
+                          TRUE ~ "No"),
+                mjust_any=factor(mjust_any,levels=c("No","Yes")),
+      mjust_num=(mv744a==1)+(mv744b==1)+(mv744c==1)+(mv744d==1)+(mv744e==1),
+      
+      #other factors
+      mage = case_when (between(hv105, 0, 24) ~ "less than 25", 
+                         between(hv105, 25, 35) ~ "25-35", 
+                         TRUE ~ "35+"),
+                mage = factor (mage,levels = c("less than 25","25-35","35+")),
+      medu=case_when(mv106==0 ~ "No education",
+                      mv106==1 ~ "Primary",
+                      mv106==2 ~ "Secondary",
+                      mv106==3 ~ "Higher"),
+                medu=factor(medu,levels = c("No education","Primary","Secondary","Higher")),
+      mlivchild = case_when(mv218==0 ~ "None",
+                            mv218>=1 & wv218<=3 ~"1-3",
+                            mv218>=4 ~ "4+"),
+                mlivchild=factor(mlivchild,levels = c("None","1-3","4+")),
+      mwork = case_when(mv716==0 ~ "Unemployed",
+                        !is.na(mv716) ~ "Employed"),
+                mwork=factor(mwork,levels = c("Unemployed","Employed"),exclude=NULL),
+      mwealth=case_when(hv270==1 ~ "Poorest",
+                        hv270==2 ~ "Poorer",
+                        hv270==3 ~ "Middle",
+                        hv270==4 ~ "Richer",
+                        hv270==5 ~ "Richest"),
+                mwealth=factor(mwealth,levels = c("Poorest","Poorer","Middle","Richer","Richest")),
+      
+      murbrur = case_when(hv025==1 ~ "Urban",
+                          hv025==2 ~ "Rural"),
+                murbrur=factor(murbrur,levels = c("Urban","Rural")),
+      mmarital = case_when(mv501==0 ~ "Never married",
+                           mv501==1 ~ "Married",
+                           mv501==2 ~ "Living together",
+                           mv501==3 ~ "Widowed",
+                           mv501==4 ~ "Divorced",
+                           mv501==5 ~ "No longer living together / separated"),
+                mmarital=factor(mmarital,levels = c("Never married","Married","Living together", 
+                                            "Divorced","Widowed","No longer living together / separated")),
+      mliteracy = case_when(mv155==0 ~ "Cannot read at all",
+                            mv155==1 ~ "Able to read only parts of sentence",
+                            mv155==2 ~ "Able to read whole sentence",
+                            mv155==3 ~ "No card with required language",
+                            mv155==4 ~ "Blind/visually impaired"),
+                mliteracy = factor(mliteracy,levels = c("Cannot read at all",
+                                  "Able to read only parts of sentence","Able to read whole sentence",
+                                  "No card with required language","Blind/visually impaired")),
+      mreligion = case_when(mv130==97 ~ "No religion",
+                            mv130==1 ~ "Catholic",
+                            mv130==2 ~ "Protestant",
+                            mv130==3 ~ "Adventist",
+                            mv130==4 ~ "Muslim",
+                            mv130==8 ~ "Jehovah Witness",
+                            TRUE ~ "Other"),
+                mreligion = factor(mreligion,levels=c("No religion","Catholic","Protestant","Adventist",
+                                                      "Muslim","Jehovah Witness","Other")),
+      mpolygamy = case_when(!is.na(mv034_2) ~ "Yes",
+                            TRUE ~ "No"),
+                mpolygamy=factor(mpolygamy,levels=c("No","Yes")),
+      mtvradio = case_when(hv207==0 | hv208==0 ~ "Yes",
+                           TRUE ~ "No"),
+                mtvradio = factor(mtvradio,levels = c("No","Yes")),
+      mfreqmedia = case_when(mv157==2 | mv158==2 | mv159==2 ~ "At least once a week",
+                             mv157==1 | mv158==1 | mv159==1 ~ "Less than once a week",
+                             TRUE ~ "Not at all"),
+                mfreqmedia = factor(mfreqmedia,levels=c("Not at all","Less than once a week",
+                                                        "At least once a week")),
+      minternet = case_when(mv171b==0 ~ "Not at all",
+                            mv171b==1 ~ "Less than once a week",
+                            mv171b==2 ~ "At least once a week",
+                            mv171b==3 ~ "Almost every day"),
+                minternet = factor(minternet,levels=c("Not at all","Less than once a week",
+                                                      "At least once a week","Almost every day")),
+      )
+
+```
+
+#Solve the multi-wife problem
+```{r}
+# makesure mcaseid sorted
+RWm <- RWm[order(RWm$mcaseid),]
+# get indicators of duplics. mlagid1: lag +1, mlagid2: lag -1
+RWm$mlagid1 <- c(NA, head(RWm$mcaseid, -1))
+RWm$mlagid2 <- c(tail(RWm$mcaseid, -1),NA)
+RWm <- mutate(RWm, 
+      mwifes=ifelse(mcaseid==mlagid1|mcaseid==mlagid2,"Yes","No"),
+                mwifes=factor(mwifes,levels=c("No","Yes")))
+#summarize multiple wifes
+RWm <- RWm %>% group_by(mcaseid) %>% mutate(
+      wdis_any=ifelse(any(wdis_any=="Yes"),"Yes","No"),
+                wdis_any=factor(wdis_any,levels=c("No","Yes")),
+      wdis_any2=ifelse(any(wdis_any2=="Yes"),"Yes","No"),
+                wdis_any2=factor(wdis_any2,levels=c("No","Yes")),
+      ) %>% ungroup()
+# delete duplicates
+RWm <- filter(RWm,mcaseid!=mlagid1|is.na(mlagid1))
+# group_by(RWm,mcaseid) %>% summarise(n=n()) %>% filter(n>1) %>% group_by(n) %>%summarise(n2=n())
+```
+
+
+
+
+```{r}
+### Problem: men say no wife, wife say they are husband. Exclude?
+# group_by(RWm,whvidx==mv034_1,whvidx==mv034_2,whvidx==mv034_3,whvidx==mv034_4) %>% summarise(n=n())
+# filter(RWm,is.na(whvidx == mv034_1)) %>% group_by(mv034_1,whvidx,hvidx) %>% summarise(n=n())
+
+```
+
+
+#examine data
+```{r}
+# findout how many men have more than one wives with available data
+# method: table men's identifiers, men with multiple entry are with multiple wives.
+# test <- data.frame(table(RWm$mcaseid))
+# print(filter(test,Freq>=2))
+# 
+# # simple check on missingness
+# # MUST run the last line!!!! Otherwise more content will go in file.
+# sink(file="descriptives.txt",append=F)
+# for (name in names(RWm))
+# {
+#   if (name %in% c("hv001","whv001","hv002","whv002","hvidx","whvidx","wv034","wd005","wv005","mv005",
+#                   "wv021","wv023","mv021","mv023","wcaseid","mcaseid"))
+#     {next}
+#   print(paste0("RWm    ",name))
+#   print(data.frame(group_by(RWm,get(name)) %>% summarise(n=n())))
+#   writeLines("\n")
+# }
+# for (name in names(RWw))
+# {
+#   if (name %in% c("hv001","whv001","hv002","whv002","hvidx","whvidx","wv034","wd005","wv005","mv005",
+#                   "wv021","wv023","mv021","mv023","wcaseid","mcaseid"))
+#     {next}
+#   print(paste0("RWw    ",name))
+#   print(data.frame(group_by(RWw,get(name)) %>% summarise(n=n())))
+#   writeLines("\n")
+# }
+# sink()
+```
+
+# exclude missings and set up survey design
+```{r}
+RWwa <- filter(RWw,!is.na(wnsee) & !is.na(wnhear) & whdis5!=8 & whdis6!=8 & whdis7!=8 & whdis8!=8) %>%
+          filter(wv744a!=8 & wv744b!=8 & wv744c!=8 & wv744d!=8 & wv744e!=8)
+
+RWma <- filter(RWm,!is.na(mnsee) & !is.na(mnhear) & hdis5!=8 & hdis6!=8 & hdis7!=8 & hdis8!=8) %>%
+          filter(!is.na(wnsee) & !is.na(wnhear) & whdis5!=8 & whdis6!=8 & whdis7!=8 & whdis8!=8) %>%
+          filter(mv744a!=8 & mv744b!=8 & mv744c!=8 & mv744d!=8 & mv744e!=8) %>%
+          filter(wv744a!=8 & wv744b!=8 & wv744c!=8 & wv744d!=8 & wv744e!=8) %>%
+          filter(!is.na(whvidx == mv034_1) & 
+                   (whvidx == mv034_1 | whvidx == mv034_2 | whvidx == mv034_3 | whvidx == mv034_4))
+
+RWwa <-mutate(RWwa, wt=wv005/1000000)
+RWma <-mutate(RWma, wt=mv005/1000000)
+
+
+wdesg <- svydesign(id=~wv021, strata=~wv023, weights=~wt, nest = TRUE, data = RWwa) 
+mdesg <- svydesign(id=~mv021, strata=~mv023, weights=~wt, nest = TRUE, data = RWma) 
+
+
+save(RWwa,RWma,file="RWa.Rdata")
+
+```
+
+# Start here
+```{r}
+library(haven)
+library(dplyr)
+library(labelled)
+library(tidyverse)
+library(mice)
+library(survey)
+library(arsenal)
+```
+
+# Read Rdata
+```{r}
+load("RWa.Rdata")
+
+wdesg <- svydesign(id=~wv021, strata=~wv023, weights=~wt, nest = TRUE, data = RWwa) 
+mdesg <- svydesign(id=~mv021, strata=~mv023, weights=~wt, nest = TRUE, data = RWma)
+```
+
+# set up factors
+```{r}
+wout <- c("wdis_any","wdis_any2","wjust_any")
+mout <- c("mdis_any","mdis_any2","mjust_any","wdis_any","wdis_any2","wjust_any")
+wcov <- c("wage","wedu","wlivchild","wwork","wwealth","wurbrur","wmarital","wliteracy",
+          "wreligion","wtvradio","wfreqmedia")
+wcov2 <- c("wage","wedu","wlivchild","wwork","wwealth","wurbrur","wmarital","wliteracy",
+          "wtvradio","wfreqmedia")
+mcov <- c("mage","medu","mlivchild","mwork","mwealth","murbrur","mmarital","mliteracy",
+          "mreligion","mtvradio","mfreqmedia","mpolygamy")
+mcov2 <- c("mage","medu","mlivchild","mwork","mwealth","murbrur","mmarital","mliteracy",
+          "mtvradio","mfreqmedia","mpolygamy")
+```
+
+# Univariate
+```{r}
+#for women
+for (out in wout)
+{
+  tab1 <- group_by(RWwa,get(out)) %>% summarise(n=n())
+  tab1$percent <- tab1$n/sum(tab1$n)*100
+  tab1$print <- paste0(tab1$n," (",round(tab1$percent,2),"%)")
+  write.table(out,file="test.csv",append=T,sep=",")
+  write.table(tab1,file="test.csv",append=T,sep=",",row.names=F,col.names=T)
+}
+```
+```{r}
+#for men
+for (out in mout)
+{
+  tab1 <- group_by(RWma,get(out)) %>% summarise(n=n())
+  tab1$percent <- tab1$n/sum(tab1$n)*100
+  tab1$print <- paste0(tab1$n," (",round(tab1$percent,2),"%)")
+  write.table(out,file="test.csv",append=T,sep=",")
+  write.table(tab1,file="test.csv",append=T,sep=",",row.names=F,col.names=T)
+}
+```
+```{r}
+#Weighted women
+for (out in wout)
+{
+  tab1 <- data.frame(svytable(~get(out),design=wdesg,addNA=T))
+  tab1$percent <- tab1$Freq/sum(tab1$Freq)*100
+  tab1$print <- paste0(round(tab1$Freq)," (",round(tab1$percent,2),"%)")
+  write.table(out,file="test.csv",append=T,sep=",")
+  write.table(tab1,file="test.csv",append=T,sep=",",row.names=F,col.names=T)
+}
+```
+```{r}
+#Weighted men
+for (out in mout)
+{
+  tab1 <- data.frame(svytable(~get(out),design=mdesg,addNA=T))
+  tab1$percent <- tab1$Freq/sum(tab1$Freq)*100
+  tab1$print <- paste0(round(tab1$Freq)," (",round(tab1$percent,2),"%)")
+  write.table(out,file="test.csv",append=T,sep=",")
+  write.table(tab1,file="test.csv",append=T,sep=",",row.names=F,col.names=T)
+}
+```
+```{r}
+#Bivariate (Redo X4)
+#Women
+tab1 <- data.frame(svytable(~wdis_any2+wjust_any,design=wdesg,addNA=T))
+tab1 <- group_by(tab1,wdis_any2) %>% mutate(percent=Freq/sum(Freq)*100)
+tab1$print <- paste0(round(tab1$Freq)," (",round(tab1$percent,2),"%)")
+print(tab1)
+#men wdis
+tab1 <- data.frame(svytable(~wdis_any2+mjust_any,design=mdesg,addNA=T))
+tab1 <- group_by(tab1,wdis_any2) %>% mutate(percent=Freq/sum(Freq)*100)
+tab1$print <- paste0(round(tab1$Freq)," (",round(tab1$percent,2),"%)")
+print(tab1)
+#men mdis
+tab1 <- data.frame(svytable(~mdis_any2+mjust_any,design=mdesg,addNA=T))
+tab1 <- group_by(tab1,mdis_any2) %>% mutate(percent=Freq/sum(Freq)*100)
+tab1$print <- paste0(round(tab1$Freq)," (",round(tab1$percent,2),"%)")
+print(tab1)
+```
+```{r}
+# three variate (stratified by men's disability)
+tab1 <- data.frame(svytable(~wdis_any2+mjust_any+mdis_any2,design=mdesg,addNA=T))
+tab1 <- group_by(tab1,mdis_any2,wdis_any2) %>% mutate(percent=Freq/sum(Freq)*100)
+tab1$print <- paste0(round(tab1$Freq)," (",round(tab1$percent,2),"%)")
+print(tab1)
+```
+
+```{r}
+#Weighted covariates
+#women
+for (out in wcov)
+{
+  tab1 <- data.frame(svytable(~get(out),design=wdesg,addNA=T))
+  tab1$percent <- tab1$Freq/sum(tab1$Freq)*100
+  tab1$print <- paste0(round(tab1$Freq)," (",round(tab1$percent,2),"%)")
+  write.table(out,file="test.csv",append=T,sep=",")
+  write.table(tab1,file="test.csv",append=T,sep=",",row.names=F,col.names=T)
+}
+```
+```{r}
+#men
+for (out in c(mcov,wcov))
+{
+  tab1 <- data.frame(svytable(~get(out),design=mdesg,addNA=T))
+  tab1$percent <- tab1$Freq/sum(tab1$Freq)*100
+  tab1$print <- paste0(round(tab1$Freq)," (",round(tab1$percent,2),"%)")
+  write.table(out,file="test.csv",append=T,sep=",")
+  write.table(tab1,file="test.csv",append=T,sep=",",row.names=F,col.names=T)
+}
+```
+```{r}
+#Marital status
+tab1 <- data.frame(svytable(~mmarital+wmarital,design=mdesg,addNA=T))
+tab1 <- group_by(tab1,mmarital) %>% mutate(percent=Freq/sum(Freq)*100)
+tab1$print <- paste0(round(tab1$Freq)," (",round(tab1$percent,2),"%)")
+print(filter(tab1,!is.na(percent)))
+```
+```{r}
+#Logistic regression - zero order
+#function defined for regression
+printer <- function(modelglm)
+{ 
+  printt <- as.data.frame(round(exp(confint(modelglm)),2))
+  printt$coeff <- c(round(exp(summary(modelglm)[["coefficients"]][,1]),2))
+  printt$coeci <- paste0(printt$coeff," (",printt$`2.5 %`,"@",printt$`97.5 %`,")")
+  printt$pvalue <- c(round(summary(modelglm)[["coefficients"]][,4],4))
+#  print(printt)
+  write.table(printt,file="test.csv",append=T,sep=",",row.names=T,col.names=T)
+}
+#women
+glm1 <- svyglm(wjust_any~wdis_any2,design=wdesg,family=quasibinomial())
+tidy(glm1,conf.int=T,exponentiate=T)
+printer(glm1)
+AIC(glm1)
+#men - wdis
+glm1 <- svyglm(mjust_any~wdis_any2,design=mdesg,family=quasibinomial())
+tidy(glm1,conf.int=T,exponentiate=T)
+printer(glm1)
+AIC(glm1)
+#men - mdis
+glm1 <- svyglm(mjust_any~mdis_any2,design=mdesg,family=quasibinomial())
+tidy(glm1,conf.int=T,exponentiate=T)
+printer(glm1)
+AIC(glm1)
+#men - no interaction
+glm1 <- svyglm(mjust_any~wdis_any2+mdis_any2,design=mdesg,family=quasibinomial())
+summary(glm1,correlation=T)
+tidy(glm1,conf.int=T,exponentiate=T)
+printer(glm1)
+AIC(glm1)
+#men - with interaction
+glm1 <- svyglm(mjust_any~wdis_any2+mdis_any2+wdis_any2*mdis_any2,design=mdesg,family=quasibinomial())
+summary(glm1,correlation=T)
+tidy(glm1,conf.int=T,exponentiate=T)
+printer(glm1)
+AIC(glm1)
+```
+
+#Table 1
+```{r}
+# women
+for (out in c("wdis_any2","wjust_any"))
+{
+  for (cov in wcov)
+  {
+    if(cov=="wlivchild" | cov=="wwork" | cov=="wliteracy") #svymeans does not work for missing values
+    {
+      #get count and percent
+      counts <- svytable(as.formula(paste0("~",cov,"+",out)), wdesg, addNA = TRUE)
+      margin <- margin.table(counts,1)  #margin -> 1=byrow, 2=bycol result=rowsum
+      percent <- counts[,2]/margin  #[,2]=col2
+      #get confident intervals as a list of lists
+      a <- list()
+      for(i in c(1:nrow(counts))){
+        a[[i]] <- prop.test(counts[,2][[i]],margin[[i]])[["conf.int"]][1:2]   }
+      #combine and rename
+      tab1 <- as.data.frame(cbind(percent,do.call(rbind,a)))
+      tab1 <- cbind(rownames(tab1),tab1)
+    }
+    else
+    {
+      #get percent and CI
+      tab1 <- svyby(as.formula(paste0("~",out)),as.formula(paste0("~",cov)),mdesg,svymean,vartype="ci")
+      tab1 <- tab1[,c(1,3,5,7)]
+    }
+    colnames(tab1) <- c("var","percent","lowerci","upperci")
+    #create printable variable for easy copy and paste
+    tab1 <- mutate(tab1, print=paste0(round(percent*100,digits=2)," (",
+                                        round(lowerci*100,digits=2),"@ ",
+                                        round(upperci*100,digits=2),")"))
+    write.table(c(out,cov),file="test.csv",append=T,sep=",")
+    write.table(tab1,file="test.csv",append=T,sep=",",row.names=F,col.names=T)
+  }
+}
+```
+```{r}
+# husband
+for (out in c("mdis_any2","mjust_any"))
+{
+  for (cov in c(mcov))
+  {
+    #svymeans does not work for missing values
+    if(cov=="mlivchild" | cov=="mwork" | cov=="mliteracy") 
+    {
+      #get count and percent
+      counts <- svytable(as.formula(paste0("~",cov,"+",out)), mdesg, addNA = TRUE)
+      margin <- margin.table(counts,1)  #margin -> 1=byrow, 2=bycol result=rowsum
+      percent <- counts[,2]/margin  #[,2]=col2
+      #get confident intervals as a list of lists
+      a <- list()
+      for(i in c(1:nrow(counts))){
+        a[[i]] <- prop.test(counts[,2][[i]],margin[[i]])[["conf.int"]][1:2]   }
+      #combine and rename
+      tab1 <- as.data.frame(cbind(percent,do.call(rbind,a)))
+      tab1 <- cbind(rownames(tab1),tab1)
+    }
+    else
+    {
+      #get percent and CI
+      tab1 <- svyby(as.formula(paste0("~",out)),as.formula(paste0("~",cov)),mdesg,svymean,vartype="ci")
+      tab1 <- tab1[,c(1,3,5,7)]
+    }
+    colnames(tab1) <- c("var","percent","lowerci","upperci")
+    #create printable variable for easy copy and paste
+    tab1 <- mutate(tab1, print=paste0(round(percent*100,digits=2)," (",
+                                        round(lowerci*100,digits=2),"@ ",
+                                        round(upperci*100,digits=2),")"))
+    write.table(c(out,cov),file="test.csv",append=T,sep=",")
+    write.table(tab1,file="test.csv",append=T,sep=",",row.names=F,col.names=T)
+  }
+}
+```
+```{r}
+# wife
+for (out in c("wdis_any2"))
+{
+  for (cov in c(mcov))
+  {
+    #svymeans does not work for missing values
+    if(cov=="mlivchild" | cov=="mwork" | cov=="mliteracy") 
+    {
+      #get count and percent
+      counts <- svytable(as.formula(paste0("~",cov,"+",out)), mdesg, addNA = TRUE)
+      margin <- margin.table(counts,1)  #margin -> 1=byrow, 2=bycol result=rowsum
+      percent <- counts[,2]/margin  #[,2]=col2
+      #get confident intervals as a list of lists
+      a <- list()
+      for(i in c(1:nrow(counts))){
+        a[[i]] <- prop.test(counts[,2][[i]],margin[[i]])[["conf.int"]][1:2]   }
+      #combine and rename
+      tab1 <- as.data.frame(cbind(percent,do.call(rbind,a)))
+      tab1 <- cbind(rownames(tab1),tab1)
+    }
+    else
+    {
+      #get percent and CI
+      tab1 <- svyby(as.formula(paste0("~",out)),as.formula(paste0("~",cov)),mdesg,svymean,vartype="ci")
+      tab1 <- tab1[,c(1,3,5,7)]
+    }
+    colnames(tab1) <- c("var","percent","lowerci","upperci")
+    #create printable variable for easy copy and paste
+    tab1 <- mutate(tab1, print=paste0(round(percent*100,digits=2)," (",
+                                        round(lowerci*100,digits=2),"@ ",
+                                        round(upperci*100,digits=2),")"))
+    write.table(c(out,cov),file="test.csv",append=T,sep=",")
+    write.table(tab1,file="test.csv",append=T,sep=",",row.names=F,col.names=T)
+  }
+}
+```
+
+# Regression
+```{r}
+#function defined for regression
+printer <- function(modelglm)
+{ 
+  printt <- as.data.frame(round(exp(confint(modelglm)),2))
+  printt$coeff <- c(round(exp(summary(modelglm)[["coefficients"]][,1]),2))
+  printt$coeci <- paste0(printt$coeff," (",printt$`2.5 %`,"@",printt$`97.5 %`,")")
+  printt$pvalue <- c(round(summary(modelglm)[["coefficients"]][,4],4))
+#  print(printt[2:4,])
+  write.table(printt[2:4,],file="test.csv",append=T,sep=",",row.names=T,col.names=T)
+}
+# loop for regression   Women
+for(dis in c("wdis_any2"))
+{
+  for (out in c("wjust_any"))
+  {
+    write.table(paste0("zero order ",out,"~",dis),file="test.csv",append=T,sep=",")
+    # zero-order regression
+    modelobject <- svyglm(as.formula(paste0(out,"~",dis)), 
+                   design = wdesg, family = quasibinomial(link = "logit"))
+    #print(summary(modelobject))
+    printer(modelobject)
+    # one adjustment regression
+    for (cov in wcov2)
+    {
+      write.table(paste0("one adjustment ",out,"~",dis,"+",cov),file="test.csv",append=T,sep=",")
+      modelobject <- svyglm(as.formula(paste0(out,"~",dis, "+",cov)), 
+                           design = wdesg, family = quasibinomial(link = "logit"))
+      #print(summary(modelobject))
+      printer(modelobject)
+    }
+  }
+}
+```
+```{r}
+# Men
+# c("wdis_any2+mdis_any2+wdis_any2*mdis_any2")
+for(dis in c("wdis_any2"))
+{
+  for (out in c("mjust_any"))
+  {
+    write.table(paste0("zero order ",out,"~",dis),file="test.csv",append=T,sep=",")
+    # zero-order regression
+    modelobject <- svyglm(as.formula(paste0(out,"~",dis)), 
+                   design = mdesg, family = quasibinomial(link = "logit"))
+    #print(summary(modelobject))
+    printer(modelobject)
+    # one adjustment regression
+    for (cov in mcov2)
+    {
+      write.table(paste0("one adjustment ",out,"~",dis,"+",cov),file="test.csv",append=T,sep=",")
+      modelobject <- svyglm(as.formula(paste0(out,"~",dis, "+",cov)), 
+                           design = mdesg, family = quasibinomial(link = "logit"))
+      #print(summary(modelobject))
+      printer(modelobject)
+    }
+  }
+}
+```
+
+
+```{r}
+#Full adjusted model - women, men's data - women, men, both not interaction, both with interaction.
+modelobject <- svyglm(wjust_any ~ wdis_any2 + wage+wedu+wlivchild+wwork+wwealth+wurbrur+
+                        wmarital+wliteracy+wtvradio+wfreqmedia, 
+               design = wdesg, family = quasibinomial(link = "logit"))
+AIC(modelobject)
+printer(modelobject)
+modelobject <- svyglm(mjust_any ~ wdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+
+                        mmarital+mliteracy+mtvradio+mfreqmedia+mpolygamy, 
+               design = mdesg, family = quasibinomial(link = "logit"))
+AIC(modelobject)
+printer(modelobject)
+modelobject <- svyglm(mjust_any ~  mdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+
+                        mmarital+mliteracy+mtvradio+mfreqmedia+mpolygamy, 
+               design = mdesg, family = quasibinomial(link = "logit"))
+AIC(modelobject)
+printer(modelobject)
+modelobject <- svyglm(mjust_any ~  wdis_any2 + mdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+
+                        mmarital+mliteracy+mtvradio+mfreqmedia+mpolygamy, 
+               design = mdesg, family = quasibinomial(link = "logit"))
+AIC(modelobject)
+printer(modelobject)
+modelobject <- svyglm(mjust_any ~  wdis_any2 + mdis_any2 + mage+medu+mlivchild+mwork+mwealth+murbrur+
+                        mmarital+mliteracy+mtvradio+mfreqmedia+mpolygamy + wdis_any2*mdis_any2, 
+               design = mdesg, family = quasibinomial(link = "logit"))
+AIC(modelobject)
+printer(modelobject)
+
+# summary(modelobject)
+```
+
+
+
+#not for use here after
+```{r}
+for (char in c("a","b","c","d","e"))
+{
+  print(with(RWw,table(get(paste0("wv744",char)))))
+}
+
+for (num in c(1:4))
+{
+  print(with(RWm,table(get(paste0("mv034_",num))==whvidx)))
+}
+
+RWw$wjust <- RWw$wv744a==1|RWw$wv744b==1|RWw$wv744c==1|RWw$wv744d==1|RWw$wv744e==1
+
+RWm2 <- RWm %>% filter(wv744a!=8&wv744b!=8&wv744c!=8&wv744d!=8&wv744e!=8&mv744a!=8&mv744b!=8&mv744c!=8&mv744d!=8&mv744e!=8)
+RW3<- RWm  %>% select(hdis1, hdis2, hdis3, hdis4, hdis5,hdis6, hdis7, hdis8)
+md.pattern(RW3, rotate.names = TRUE)
+
+```
+
+
+```{r}
+##Try out forest plot
+
+#wjust_any is outcome
+#unadjusted
+glm1 <- svyglm(wjust_any~wlivchild,design=wdesg,family=quasibinomial()) #wlivchild is 3 level var
+threelv <- tidy(glm1,conf.int=T,exponentiate=T)[,c(1,2,6,7)]
+glm2 <- svyglm(wjust_any~wdis_any2,design=wdesg,family=quasibinomial()) #wdis_any2 is 2 level var
+twolv <- tidy(glm2,conf.int=T,exponentiate=T)[,c(1,2,6,7)]
+#can use dplyr package to restrain from hard coding, I'm just lazy... Everything in [] before "," is for rows.
+d1 <- rbind(threelv,twolv)[c(2,3,5),] 
+d1 <- mutate(d1,type="Unadjusted")
+#same for adjusted
+glm1 <- svyglm(wjust_any~wlivchild+wage,design=wdesg,family=quasibinomial()) #wlivchild is 3 level var
+threelv <- tidy(glm1,conf.int=T,exponentiate=T)[,c(1,2,6,7)]
+glm2 <- svyglm(wjust_any~wdis_any2+wage,design=wdesg,family=quasibinomial()) #wdis_any2 is 2 level var
+twolv <- tidy(glm2,conf.int=T,exponentiate=T)[,c(1,2,6,7)]
+d2 <- rbind(threelv,twolv)[c(2,3,7),] #note: because there are more rows, carefully choose your rows here. 
+d2 <- mutate(d2,type="Adjusted")
+#combine adjusted and unadjusted, change to easy names
+dat <- data.frame(rbind(d1,d2))
+names(dat) <- c("term","OR","LL","UL","type")
+dat <- mutate(dat,term=case_when(term=="wlivchild1-3"~"1-3",
+                           term=="wlivchild4+"~"4+",
+                           term=="wdis_any2Yes"~"Yes"))
+
+#Plot
+ggplot(data=dat,aes(y=term,x=OR,xmin=LL,xmax=UL,col=type,fill=type))+
+  geom_pointrange(position=position_dodge(width =0.2)) + 
+  xlab("Odds Ratio (95% CI)") +
+  ylab("Variables") +
+  scale_y_discrete(limits=rev)+
+  theme_bw()
+```
+
+```{r}
+# old way for multiple wives
+
+# makesure mcaseid sorted
+RWm <- RWm[order(RWm$mcaseid),]
+# get indicators of duplics. mlagid1: lag +1, mlagid2: lag -1
+RWm$mlagid1 <- c(NA, head(RWm$mcaseid, -1))
+RWm$mlagid2 <- c(tail(RWm$mcaseid, -1),NA)
+RWm <- mutate(RWm, 
+      mwifes=ifelse(mcaseid==mlagid1|mcaseid==mlagid2,"Yes","No"),
+                mwifes=factor(mwifes,levels=c("No","Yes")))
+
+# get unique multi-wife men caseid
+mwifeid <- unique(filter(RWm,mwifes=="Yes") %>% select(mcaseid))$mcaseid
+# get if any of the wifes disabled, store in mwifevar
+wda <- c()
+wda2 <- c()
+for (i in c(1:length(mwifeid)))
+{
+  test <- filter(RWm,mcaseid==mwifeid[i])
+  wda[[i]] <- ifelse(any(test[["wdis_any"]]=="Yes"),"Yes","No")
+  wda2[[i]] <- ifelse(any(test[["wdis_any2"]]=="Yes"),"Yes","No")
+}
+mwifevar <- data.frame(cbind(mwifeid,wda,wda2))
+# Subsititute column value with modified value
+for (i in c(1:length(mwifeid)))
+{
+  RWm$wdis_any[RWm$mcaseid==mwifeid[i]] <- mwifevar[[i,2]]
+  RWm$wdis_any2[RWm$mcaseid==mwifeid[i]] <- mwifevar[[i,3]]
+}
+# delete duplicates
+RWm <- filter(RWm,mcaseid!=mlagid1)
+```
