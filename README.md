@@ -1,5 +1,7 @@
 # R-Codes-Women-Disability-and-Couple-IPV-Acceptance
-R codes for publication: The Association Between Women's Disability and Acceptance Towards Intimate Partner Violence Among Women and their Male Partners: A Multi-Country Analysis. Contact: Cheyu Zhang czhang29@gmu.edu
+R codes for publication: The Association Between Women's Disability and Acceptance Towards Intimate Partner Violence Among Women and their Male Partners: A Multi-Country Analysis. 
+
+Contact: Cheyu Zhang czhang29@gmu.edu
 
 ## Usage
 The data is not included in the package. DHS data is publically available, please download appropriate data from https://dhsprogram.com/. Household, individual (women) and men's datasets were used in this project. 
